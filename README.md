@@ -37,6 +37,6 @@ Biến môi trường: `PORT`, `DB_PATH` (mặc định `data/banhang.db`), `ADM
 - `public/` — giao diện (SPA thuần JS, không cần build), `sw.js` + `manifest.webmanifest` cho PWA
 
 ## Việc tiếp theo
-- Triển khai lên máy chủ đám mây (VPS/Render/Railway… có ổ đĩa lưu bền cho file SQLite, hoặc chuyển sang PostgreSQL) + HTTPS.
+- Đưa lên mạng: xem [DEPLOY.md](DEPLOY.md) (Railway + ổ lưu dữ liệu).
 - Bản 2: tích hợp Meta Graph API (gom inbox/bình luận, cửa sổ 24h) sau khi được duyệt quyền.
 - Kết nối API hãng vận chuyển (tạo vận đơn, tra trạng thái tự động).

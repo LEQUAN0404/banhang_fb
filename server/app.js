@@ -12,6 +12,8 @@ app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['htm
 const wrap = fn => (req, res, next) => { try { const r = fn(req, res); if (r !== undefined) res.json(r); } catch (e) { next(e); } };
 const int = v => (v === '' || v == null ? null : Math.round(Number(v)));
 
+app.get('/healthz', (req, res) => { db.prepare('SELECT 1').get(); res.json({ ok: true }); });
+
 // ---------- Đăng nhập ----------
 app.post('/api/login', wrap((req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE username=?').get(String(req.body.username || '').trim().toLowerCase());
@@ -114,6 +116,16 @@ app.put('/api/admin/users/:id', need('admin'), wrap(req => {
     return { ok: true };
   });
 }));
+// Sao lưu: tải về bản sao toàn bộ CSDL (file SQLite)
+app.get('/api/admin/backup', need('admin'), (req, res, next) => {
+  try {
+    const os = require('os'), fs = require('fs');
+    const file = path.join(os.tmpdir(), `banhang-backup-${Date.now()}.db`);
+    db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+    D.log(null, req.user.id, 'sao_luu', '');
+    res.download(file, `banhang-${D.todayStr()}.db`, () => fs.rm(file, { force: true }, () => {}));
+  } catch (e) { next(e); }
+});
 app.get('/api/admin/activity', need('admin'), wrap(() => db.prepare(`SELECT a.*, u.name user_name, p.name page_name FROM activity_log a
   LEFT JOIN users u ON u.id=a.user_id LEFT JOIN pages p ON p.id=a.page_id ORDER BY a.id DESC LIMIT 300`).all()));
 

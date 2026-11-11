@@ -777,7 +777,7 @@ async function viewAdmin(v, parts) {
   const [pages, users] = await Promise.all([api('/api/admin/pages'), api('/api/admin/users')]);
   const tab = parts[0] || 'users';
   v.innerHTML = `<div class="topbar"><h1>Tài khoản & Page</h1></div>
-    <div class="tabs"><a href="#/admin/users" class="${tab === 'users' ? 'on' : ''}">Người dùng</a><a href="#/admin/pages" class="${tab === 'pages' ? 'on' : ''}">Page / kênh bán</a><a href="#/admin/log" class="${tab === 'log' ? 'on' : ''}">Nhật ký thao tác</a></div><div id="t"></div>`;
+    <div class="tabs"><a href="#/admin/users" class="${tab === 'users' ? 'on' : ''}">Người dùng</a><a href="#/admin/pages" class="${tab === 'pages' ? 'on' : ''}">Page / kênh bán</a><a href="#/admin/log" class="${tab === 'log' ? 'on' : ''}">Nhật ký thao tác</a><a href="/api/admin/backup">⬇ Tải bản sao lưu dữ liệu</a></div><div id="t"></div>`;
   const t = $('#t');
   const pageChecks = ids => `<div><div class="small muted">Page được giao</div>${pages.map(p => `<label class="tag"><input type="checkbox" name="page_ids" data-multi="1" value="${p.id}" ${(ids || []).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join(' ') || '<span class="small muted">Chưa có Page</span>'}</div>`;
   const reloadMe = async () => { S.me = await api('/api/me'); if (!S.page && S.me.pages[0]) { S.page = S.me.pages[0]; S.settings = await P('/settings'); } boot(); };
