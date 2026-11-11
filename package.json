@@ -1,0 +1,21 @@
+{
+  "name": "banhang-fb",
+  "version": "1.0.0",
+  "description": "App quản lý bán hàng Facebook — bản 1",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --no-warnings server/index.js",
+    "seed": "node --no-warnings scripts/seed.js",
+    "test": "node --no-warnings --test test/flow.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.22.3"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "private": true
+}
