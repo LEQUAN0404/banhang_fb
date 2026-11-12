@@ -185,6 +185,8 @@ async function viewDashboard(v) {
       <div class="card stat"><div class="l">Hội thoại mới hôm nay</div><div class="v">${d.convToday.n}</div><div class="small muted">Chốt ${d.convToday.chot || 0} · tỉ lệ ${d.convToday.n ? pct((d.convToday.chot || 0) / d.convToday.n) : '—'}</div></div>
       <div class="card stat"><div class="l">Hội thoại đang tư vấn</div><div class="v">${t.open_conversations}</div><div class="small"><a href="#/conversations?outcome=dang_tu_van">Xem →</a></div></div>
     </div>
+    ${t.flagged_conversations && can('admin', 'sales') ? `<div class="alert err">🚩 Có <b>${t.flagged_conversations}</b> hội thoại cần chủ shop xem (khiếu nại, mặc cả, ngoài phạm vi…). <a href="#/conversations?flag=1">Xem →</a></div>` : ''}
+    ${t.ai_drafts && can('admin', 'sales') ? `<div class="alert">🤖 Có <b>${t.ai_drafts}</b> hội thoại có bản nháp AI chờ duyệt. <a href="#/conversations?draft=1">Duyệt →</a></div>` : ''}
     ${t.unanswered_messages && can('admin', 'sales') ? `<div class="alert err">💬 Có <b>${t.unanswered_messages}</b> hội thoại Messenger chưa trả lời. <a href="#/conversations?reply=chua_tra_loi">Trả lời ngay →</a></div>` : ''}
     <div class="card"><h3>Đơn theo trạng thái</h3><div class="row">${st.map(s => `<a href="#/orders?status=${s}">${pill(s)} <b>${d.byStatus[s] || 0}</b></a>`).join(' ')}</div></div>
     <h2>Việc cần xử lý</h2>
@@ -205,24 +207,26 @@ async function viewDashboard(v) {
 async function viewConversations(v, parts, q) {
   if (parts[0] === 'new') return convForm(v, null);
   if (parts[0]) return convForm(v, await P('/conversations/' + parts[0]));
-  const qs = new URLSearchParams({ q: q.q || '', outcome: q.outcome || '', tag: q.tag || '', reply: q.reply || '' });
+  const qs = new URLSearchParams({ q: q.q || '', outcome: q.outcome || '', tag: q.tag || '', reply: q.reply || '', draft: q.draft || '', flag: q.flag || '' });
   const [rows, ms] = await Promise.all([P('/conversations?' + qs), P('/messenger')]);
   const tabs = [['', '', 'Tất cả'], ['', 'chua_tra_loi', `Chưa trả lời${ms.unanswered ? ` (${ms.unanswered})` : ''}`], ['dang_tu_van', '', 'Đang tư vấn'], ['chot', '', 'Đã chốt'], ['khong_chot', '', 'Không chốt']];
-  const cur = `${q.outcome || ''}|${q.reply || ''}`;
+  if (ms.connected) tabs.splice(2, 0, ['', '', `🤖 AI chờ duyệt${ms.drafts ? ` (${ms.drafts})` : ''}`, 'draft=1'], ['', '', `🚩 Cần chủ shop${ms.flagged ? ` (${ms.flagged})` : ''}`, 'flag=1']);
+  const cur = `${q.outcome || ''}|${q.reply || ''}|${q.draft ? 'draft=1' : q.flag ? 'flag=1' : ''}`;
   const banner = ms.connected
     ? `<div class="alert ok small row">✅ Đã kết nối Messenger: <b>${esc(ms.fb_name)}</b> · tin mới tự về qua webhook${ms.last_event_at ? ` (gần nhất ${dt(ms.last_event_at)})` : ''}
+        · 🤖 AI: <b>${ms.ai.configured ? esc(ms.ai.mode_label) : 'chờ cấu hình'}</b>
         ${ms.last_error ? `<span style="color:var(--danger)">· Lỗi: ${esc(ms.last_error)}</span>` : ''}<button class="btn sm right" id="sync">⟳ Đồng bộ lại</button></div>`
     : `<div class="alert small">Page này chưa kết nối Messenger — hội thoại được ghi tay. ${can('admin') ? '<a href="#/admin/facebook">Kết nối Facebook Page →</a>' : 'Nhờ quản trị viên kết nối Facebook Page.'} Mục tiêu phản hồi: bình luận ≤ 15 phút, inbox 5–15 phút.</div>`;
   v.innerHTML = `<div class="topbar"><h1>Hội thoại</h1><div class="row"><button class="btn" id="qr">Câu trả lời nhanh</button><a class="btn p" href="#/conversations/new">+ Ghi hội thoại</a></div></div>
     ${banner}
-    <div class="tabs">${tabs.map(([o, r, l]) => `<a href="#/conversations?outcome=${o}&reply=${r}" class="${cur === `${o}|${r}` ? 'on' : ''}">${l}</a>`).join('')}</div>
+    <div class="tabs">${tabs.map(([o, r, l, x]) => `<a href="#/conversations?outcome=${o}&reply=${r}${x ? '&' + x : ''}" class="${cur === `${o}|${r}|${x || ''}` ? 'on' : ''}">${l}</a>`).join('')}</div>
     <form class="row card" id="sf"><input name="q" placeholder="Tìm tên, SĐT, nội dung…" value="${esc(q.q || '')}" style="flex:1;min-width:160px">
       <select name="tag" style="width:auto"><option value="">Mọi nhãn</option>${S.settings.conv_tags.map(t => `<option ${q.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select><button class="btn">Lọc</button></form>
     <div class="card tbl"><table><thead><tr><th>Thời gian</th><th>Khách</th><th class="hide-m">Nguồn</th><th>Tin cuối / tóm tắt</th><th>Kết quả</th><th></th></tr></thead><tbody>
     ${rows.map(c => `<tr class="click${c.reply_state === 'chua_tra_loi' ? ' unread' : ''}" data-href="#/conversations/${c.id}"><td class="small">${dt(c.last_msg_at || c.updated_at)}<div class="muted">${esc(c.user_name || '')}</div></td>
       <td><b>${esc(c.customer_name || '(chưa rõ tên)')}</b><div class="small muted">${esc(c.phone || '')} ${c.is_new_customer ? '<span class="tag">khách mới</span>' : '<span class="tag">khách cũ</span>'}</div></td>
       <td class="hide-m small">${c.fb_psid ? 'Messenger' : esc(c.channel === 'comment' ? 'Bình luận' : 'Inbox')}${c.source && c.source !== 'Messenger' ? ' · ' + esc(c.source) : ''}${c.content_code ? `<div class="muted">${esc(c.content_code)}</div>` : ''}</td>
-      <td class="small">${c.fb_psid ? `${c.reply_state === 'chua_tra_loi' ? '<span class="pill s-da_huy">Chưa trả lời</span> ' : '<span class="pill s-hoan_thanh">Đã trả lời</span> '}<span>${c.last_msg_from === 'page' ? '<span class="muted">Shop:</span> ' : ''}${esc((c.last_msg_text || '').slice(0, 90))}</span>` : esc(c.interest || '')}
+      <td class="small">${c.flag ? `<span class="pill s-da_huy">🚩 ${esc(ms.flag_reasons[c.flag] || c.flag)}</span> ` : ''}${c.draft_pending ? '<span class="pill s-moi_tao">🤖 Nháp chờ duyệt</span> ' : ''}${c.fb_psid ? `${c.reply_state === 'chua_tra_loi' ? '<span class="pill s-da_huy">Chưa trả lời</span> ' : '<span class="pill s-hoan_thanh">Đã trả lời</span> '}<span>${c.last_msg_from === 'page' ? '<span class="muted">Shop:</span> ' : ''}${esc((c.last_msg_text || '').slice(0, 90))}</span>` : esc(c.interest || '')}
         <div class="muted">${esc((c.summary || '').slice(0, 90))}</div>${tags(c.tags)}</td>
       <td>${c.outcome === 'chot' ? `<span class="pill s-giao_thanh_cong">Chốt</span> <a href="#/orders/${c.order_id}">${esc(c.order_code || '')}</a>` : c.outcome === 'khong_chot' ? `<span class="pill s-da_huy">Không chốt</span><div class="small muted">${esc(c.lost_reason || '')}</div>` : '<span class="pill s-moi_tao">Đang tư vấn</span>'}</td>
       <td>${c.outcome === 'dang_tu_van' ? `<a class="btn sm p" href="#/orders/new?conv=${c.id}">Tạo đơn</a>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Chưa có hội thoại</td></tr>'}
@@ -231,7 +235,7 @@ async function viewConversations(v, parts, q) {
   $('#qr').onclick = quickReplies;
   if ($('#sync')) $('#sync').onclick = () => run(async () => { $('#sync').disabled = true; const r = await P('/messenger/sync', { body: {} }); toast(`Đã đồng bộ ${r.threads} hội thoại, ${r.new_messages} tin mới`); route(); });
   bindRowLinks(v);
-  livePoll(v, () => P('/messenger').then(m => m.unanswered !== ms.unanswered || (m.last_event_at || '') !== (ms.last_event_at || '')));
+  livePoll(v, () => P('/messenger').then(m => m.unanswered !== ms.unanswered || m.drafts !== ms.drafts || m.flagged !== ms.flagged || (m.last_event_at || '') !== (ms.last_event_at || '')));
 }
 // Tự tải lại trang khi có tin mới (kiểm tra mỗi 10 giây, dừng khi rời trang)
 function livePoll(v, changed) {
@@ -257,6 +261,7 @@ function convForm(v, c) {
     ${c.id && c.outcome === 'dang_tu_van' ? `<a class="btn p" href="#/orders/new?conv=${c.id}">Chốt → Tạo đơn</a>` : ''}${c.order_id ? `<a class="btn" href="#/orders/${c.order_id}">Xem đơn</a>` : ''}</div></div>
     ${c.fb_psid ? `<div class="card"><div class="row"><h3 style="margin:0">💬 Messenger</h3><span class="right small muted">${c.reply_state === 'chua_tra_loi' ? '<span class="pill s-da_huy">Chưa trả lời</span>' : '<span class="pill s-hoan_thanh">Đã trả lời</span>'}</span></div>
       <div class="chat" id="chat"><div class="muted small">Đang tải tin nhắn…</div></div>
+      <div id="drafts"></div>
       ${can('admin', 'sales') ? `<form class="row" id="rf" style="align-items:flex-end"><textarea name="text" rows="2" placeholder="Nhập trả lời gửi khách qua Messenger…" style="flex:1;min-width:200px" required></textarea>
         <div class="grid" style="gap:6px"><button class="btn p">Gửi</button><button type="button" class="btn sm" id="mk">${c.reply_state === 'chua_tra_loi' ? 'Đánh dấu đã trả lời' : 'Đánh dấu chưa trả lời'}</button></div></form>
         <div class="small muted">Messenger chỉ cho Page trả lời trong 24 giờ kể từ tin nhắn cuối của khách.</div>` : ''}</div>` : ''}
@@ -302,17 +307,44 @@ function convForm(v, c) {
   };
 }
 
+const FLAG_LABEL = { khieu_nai: 'Khách khiếu nại / đang giận', mac_ca: 'Khách mặc cả giá', ngoai_pham_vi: 'Câu hỏi ngoài phạm vi bán hàng', thong_tin_chu_shop: 'Khách hỏi thông tin cá nhân của chủ shop', chot_don_thieu: 'Chốt đơn còn thiếu thông tin', kiem_tra: 'Bản nháp chưa qua kiểm tra tự động', khac: 'Cần chủ shop xem' };
+function draftOrderHtml(o) {
+  if (!o || !(o.items || []).length && !o.phone && !o.street) return '';
+  return `<div class="small" style="margin-top:6px"><b>Đơn AI đang thu thập${o.order_confirmed ? ' — KHÁCH ĐÃ XÁC NHẬN' : o.order_summary_in_reply ? ' — đã gửi tóm tắt' : ''}:</b>
+    ${(o.items || []).map(i => `${esc(i.code)} ${esc(i.size)} x${i.qty}`).join(', ') || '—'} · ${esc(o.recipient_name || '(chưa có tên)')}${o.recipient_name && !o.recipient_name_from_customer ? ' (tên Facebook)' : ''} · ${esc(o.phone || '(chưa có SĐT)')} · ${esc([o.street, o.ward, o.district, o.province].filter(Boolean).join(', ') || '(chưa có địa chỉ)')}</div>`;
+}
+async function renderDrafts(c, reload) {
+  const box = $('#drafts'); if (!box) return;
+  if (box.contains(document.activeElement)) return; // đang sửa nháp → không vẽ lại
+  const ds = await P(`/conversations/${c.id}/drafts`);
+  const d = ds.find(x => x.status === 'cho_duyet');
+  const cv = await P('/conversations/' + c.id);
+  const flagHtml = cv.flag ? `<div class="alert err small row">🚩 <b>${esc(FLAG_LABEL[cv.flag] || cv.flag)}</b>${d && d.flag_note ? ' — ' + esc(d.flag_note) : ''}<button class="btn sm right" id="unflag">Gỡ cờ</button></div>` : '';
+  const err = ds[0] && ds[0].status === 'loi' ? `<div class="alert err small">AI lỗi: ${esc(ds[0].error || '')}</div>` : '';
+  box.innerHTML = flagHtml + err + (d ? `<div class="draft"><div class="row small"><b>🤖 Bản nháp AI chờ duyệt</b><span class="muted">${dt(d.created_at)} · ngôn ngữ ${esc(d.language || '?')}</span>
+      ${d.ship_quote ? `<span class="tag">GHTK: ${d.ship_quote.available ? money(d.ship_quote.fee) + (d.ship_quote.leadtime_text ? ' · ' + esc(d.ship_quote.leadtime_text) : '') : 'chưa tra được'}</span>` : ''}</div>
+      ${d.checks.length ? `<div class="small" style="color:var(--danger)">Kiểm tra tự động: ${d.checks.map(esc).join(' · ')}</div>` : ''}
+      <textarea id="dtext" rows="4">${esc(d.reply_text)}</textarea>${draftOrderHtml(d.order)}
+      ${can('admin', 'sales') ? `<div class="row" style="margin-top:6px"><button class="btn p sm" id="dsend">Gửi bản này</button><button class="btn sm" id="ddisc">Bỏ qua</button><button class="btn sm" id="dregen">Soạn lại bằng AI</button></div>` : ''}</div>`
+    : (can('admin', 'sales') ? `<div class="row small" style="margin:6px 0"><button class="btn sm" id="dregen">🤖 Nhờ AI soạn trả lời</button></div>` : ''));
+  if ($('#unflag')) $('#unflag').onclick = () => run(async () => { await P(`/conversations/${c.id}/flag`, { body: {} }); await renderDrafts(c, reload); });
+  if ($('#dsend')) $('#dsend').onclick = () => run(async () => { $('#dsend').disabled = true; await P(`/conversations/${c.id}/drafts/${d.id}/send`, { body: { text: $('#dtext').value } }); toast('Đã gửi'); document.activeElement.blur(); await reload(); await renderDrafts(c, reload); }).finally(() => { if ($('#dsend')) $('#dsend').disabled = false; });
+  if ($('#ddisc')) $('#ddisc').onclick = () => run(async () => { await P(`/conversations/${c.id}/drafts/${d.id}/discard`, { body: {} }); await renderDrafts(c, reload); });
+  if ($('#dregen')) $('#dregen').onclick = () => run(async () => { $('#dregen').disabled = true; $('#dregen').textContent = 'AI đang soạn…'; try { await P(`/conversations/${c.id}/ai`, { body: {} }); } finally { await renderDrafts(c, reload); } });
+}
 async function chatThread(v, c) {
   let last = '';
   const load = async () => {
     const msgs = await P(`/conversations/${c.id}/messages`);
-    const sig = msgs.length + '|' + (msgs.at(-1)?.id || '');
+    const dsig = await P('/messenger').then(m => m.drafts + '/' + m.flagged).catch(() => '');
+    const sig = msgs.length + '|' + (msgs.at(-1)?.id || '') + '|' + dsig;
     if (sig === last) return false;
     last = sig;
     const att = a => a.url && a.type === 'image' ? `<a href="${esc(a.url)}" target="_blank" rel="noopener"><img src="${esc(a.url)}" alt="ảnh khách gửi"></a>` : `<span class="tag">${esc(a.type || 'tệp')}${a.name ? ': ' + esc(a.name) : ''}</span>`;
     $('#chat').innerHTML = msgs.map(m => `<div class="bub ${m.direction}"><div class="tx">${esc(m.text || '')}</div>${(m.attachments || []).map(att).join('')}
       <div class="meta">${dt(m.at)}${m.direction === 'out' ? ` · ${m.sent_via === 'app' ? 'gửi từ app' + (m.user_name ? ' (' + esc(m.user_name) + ')' : '') : 'gửi từ Page inbox'}` : ''}</div></div>`).join('') || '<div class="muted small">Chưa có tin nhắn</div>';
     $('#chat').scrollTop = $('#chat').scrollHeight;
+    await renderDrafts(c, load);
     return true;
   };
   await run(load);
@@ -797,7 +829,13 @@ async function viewSettings(v) {
   const s = await P('/settings');
   const lists = [['quick_replies', 'Mẫu câu trả lời nhanh'], ['conv_tags', 'Nhãn hội thoại'], ['lost_reasons', 'Lý do không chốt'], ['cancel_reasons', 'Lý do hủy đơn'], ['return_reasons', 'Lý do hoàn/đổi trả']];
   const tpls = [['tpl_confirm', 'Mẫu tin xác nhận đơn'], ['tpl_remind', 'Mẫu tin nhắc xác nhận'], ['tpl_fail', 'Mẫu tin giao thất bại'], ['tpl_care', 'Mẫu tin chăm sóc sau bán'], ['auto_reply', 'Tin tự động ngoài giờ']];
+  const ms = await P('/messenger');
   v.innerHTML = `<div class="topbar"><h1>Cài đặt · ${esc(S.page.name)}</h1></div><form id="sf">
+    <div class="card grid"><h2>🤖 Trả lời tin nhắn bằng AI</h2>
+      ${ms.ai.configured ? '' : '<div class="alert small">AI đang ở trạng thái <b>chờ cấu hình</b>: server chưa có biến <code>ANTHROPIC_API_KEY</code>. Có thể chọn chế độ trước, AI sẽ chạy khi key được đặt.</div>'}
+      ${ms.connected ? '' : '<div class="alert small">Page này chưa kết nối Messenger — AI chỉ chạy với hội thoại Messenger.</div>'}
+      <label class="f"><span>Chế độ</span><select name="ai_mode">${Object.entries(S.meta.AI_MODES).map(([k, l]) => `<option value="${k}" ${s.ai_mode === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <p class="small muted">AI chỉ dùng dữ liệu Sản phẩm & Kho của Page này, trả lời đúng ngôn ngữ khách, luôn kết thúc bằng một câu cảm ơn. Khách khiếu nại, mặc cả, hỏi ngoài phạm vi hoặc hỏi thông tin cá nhân của chủ shop → AI chỉ soạn nháp và gắn cờ 🚩 báo chủ shop.</p></div>
     <div class="card grid"><h2>Phí ship & thanh toán</h2><div class="grid g3">
       <label class="f"><span>Tỉnh/thành của shop</span><select name="shop_province">${S.meta.PROVINCES.map(p => `<option ${s.shop_province === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       <label class="f"><span>Phí ship nội tỉnh</span><input type="number" name="ship_fee_inner" value="${s.ship_fee_inner}"></label>

@@ -6,6 +6,7 @@ const { AppError } = D;
 const { hashPassword, verifyPassword, createSession, userFromReq } = require('./auth');
 
 const Meta = require('./meta');
+const AI = require('./ai');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -70,7 +71,7 @@ app.get('/api/me', wrap(req => {
   const { token, ...user } = req.user;
   return {
     user, pages,
-    meta: { STATUS: D.STATUS, TRANSITIONS: D.TRANSITIONS, PAY_METHODS: D.PAY_METHODS, ROLES: D.ROLES, CARRIERS: D.CARRIERS, SOURCES: D.SOURCES, PROVINCES: D.PROVINCES },
+    meta: { AI_MODES: D.AI_MODES, STATUS: D.STATUS, TRANSITIONS: D.TRANSITIONS, PAY_METHODS: D.PAY_METHODS, ROLES: D.ROLES, CARRIERS: D.CARRIERS, SOURCES: D.SOURCES, PROVINCES: D.PROVINCES },
   };
 }));
 
@@ -151,6 +152,7 @@ app.get('/api/admin/activity', need('admin'), wrap(() => db.prepare(`SELECT a.*,
 // ---------- Quản trị: kết nối Facebook ----------
 const baseUrl = req => (process.env.APP_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : `${req.protocol}://${req.get('host')}`)).replace(/\/$/, '');
 const redirectUri = req => baseUrl(req) + '/api/meta/oauth/callback';
+app.get('/api/admin/ai', need('admin'), wrap(() => AI.status()));
 app.get('/api/admin/meta', need('admin'), wrap(req => ({ ...Meta.status(), webhook_url: baseUrl(req) + '/webhooks/meta', redirect_uri: redirectUri(req), privacy_url: baseUrl(req) + '/privacy.html' })));
 app.get('/api/admin/meta/oauth/start', need('admin'), (req, res, next) => {
   try {
@@ -214,6 +216,7 @@ P.put('/settings', need('admin'), wrap(req => {
   const allowed = Object.keys(D.DEFAULT_SETTINGS);
   const cur = JSON.parse(db.prepare('SELECT settings FROM pages WHERE id=?').get(req.pid).settings || '{}');
   for (const k of allowed) if (k in req.body) cur[k] = req.body[k];
+  if ('ai_mode' in cur && !D.AI_MODES[cur.ai_mode]) throw new AppError('Chế độ AI không hợp lệ');
   for (const k of ['ship_fee_inner', 'ship_fee_outer', 'free_ship_from', 'return_days', 'deposit_from', 'deposit_percent'])
     if (k in cur) cur[k] = Math.max(0, Number(cur[k]) || 0);
   db.prepare('UPDATE pages SET settings=? WHERE id=?').run(JSON.stringify(cur), req.pid);
@@ -243,6 +246,8 @@ P.get('/dashboard', wrap(req => {
       WHERE p.page_id=? AND p.active=1 AND v.active=1 AND v.stock<=p.low_threshold ORDER BY v.stock, p.name`).all(pid),
     open_conversations: db.prepare(`SELECT COUNT(*) n FROM conversations WHERE page_id=? AND outcome='dang_tu_van'`).get(pid).n,
     unanswered_messages: db.prepare(`SELECT COUNT(*) n FROM conversations WHERE page_id=? AND reply_state='chua_tra_loi'`).get(pid).n,
+    flagged_conversations: db.prepare(`SELECT COUNT(*) n FROM conversations WHERE page_id=? AND flag IS NOT NULL`).get(pid).n,
+    ai_drafts: db.prepare(`SELECT COUNT(DISTINCT conversation_id) n FROM ai_drafts WHERE page_id=? AND status='cho_duyet'`).get(pid).n,
   };
   const reconciledToday = !!db.prepare('SELECT 1 FROM reconciliations WHERE page_id=? AND day=?').get(pid, today);
   return { today, byStatus, todayOrders, collected, convToday, tasks, reconciledToday };
@@ -373,13 +378,19 @@ P.get('/conversations', wrap(req => {
   if (req.query.q) { where.push('(c.customer_name LIKE ? OR c.phone LIKE ? OR c.summary LIKE ? OR c.interest LIKE ? OR c.last_msg_text LIKE ?)'); const q = `%${req.query.q}%`; args.push(q, q, q, q, q); }
   if (req.query.tag) { where.push('c.tags LIKE ?'); args.push(`%${req.query.tag}%`); }
   if (['chua_tra_loi', 'da_tra_loi'].includes(req.query.reply)) { where.push('c.reply_state=?'); args.push(req.query.reply); }
-  return db.prepare(`SELECT c.*, u.name user_name, o.code order_code FROM conversations c LEFT JOIN users u ON u.id=c.user_id
+  if (req.query.flag) where.push('c.flag IS NOT NULL');
+  if (req.query.draft) where.push("EXISTS (SELECT 1 FROM ai_drafts d WHERE d.conversation_id=c.id AND d.status='cho_duyet')");
+  return db.prepare(`SELECT c.*, u.name user_name, o.code order_code,
+    (SELECT COUNT(*) FROM ai_drafts d WHERE d.conversation_id=c.id AND d.status='cho_duyet') draft_pending FROM conversations c LEFT JOIN users u ON u.id=c.user_id
     LEFT JOIN orders o ON o.id=c.order_id WHERE ${where.join(' AND ')} ORDER BY COALESCE(c.last_msg_at, c.updated_at) DESC LIMIT 300`).all(...args);
 }));
 P.get('/messenger', wrap(req => {
   const fp = Meta.fbPageByApp(req.pid);
   const unanswered = db.prepare("SELECT COUNT(*) n FROM conversations WHERE page_id=? AND reply_state='chua_tra_loi'").get(req.pid).n;
-  return { connected: !!fp, fb_name: fp?.fb_name || null, last_sync_at: fp?.last_sync_at || null, last_event_at: fp?.last_event_at || null, last_error: fp?.last_error || null, unanswered };
+  const flagged = db.prepare('SELECT COUNT(*) n FROM conversations WHERE page_id=? AND flag IS NOT NULL').get(req.pid).n;
+  const drafts = db.prepare("SELECT COUNT(DISTINCT conversation_id) n FROM ai_drafts WHERE page_id=? AND status='cho_duyet'").get(req.pid).n;
+  return { connected: !!fp, fb_name: fp?.fb_name || null, last_sync_at: fp?.last_sync_at || null, last_event_at: fp?.last_event_at || null, last_error: fp?.last_error || null,
+    unanswered, flagged, drafts, ai: { configured: AI.enabled(), mode: D.pageSettings(req.pid).ai_mode, mode_label: D.AI_MODES[D.pageSettings(req.pid).ai_mode] }, flag_reasons: AI.FLAG_REASONS };
 }));
 P.post('/messenger/sync', need('admin', 'sales'), async (req, res, next) => {
   try { res.json(await Meta.syncPage(req.pid)); } catch (e) { next(e); }
@@ -393,6 +404,27 @@ P.get('/conversations/:id/messages', wrap(req => {
 P.post('/conversations/:id/reply', need('admin', 'sales'), async (req, res, next) => {
   try { res.json(await Meta.sendText(req.pid, Number(req.params.id), req.body.text, req.user.id)); } catch (e) { next(e); }
 });
+P.get('/conversations/:id/drafts', wrap(req => db.prepare(`SELECT d.*, u.name reviewer FROM ai_drafts d LEFT JOIN users u ON u.id=d.reviewed_by
+  WHERE d.conversation_id=? AND d.page_id=? ORDER BY d.id DESC LIMIT 10`).all(req.params.id, req.pid)
+  .map(d => ({ ...d, order: d.order_json ? JSON.parse(d.order_json) : null, ship_quote: d.ship_quote ? JSON.parse(d.ship_quote) : null, checks: d.checks ? JSON.parse(d.checks) : [] }))));
+P.post('/conversations/:id/drafts/:did/send', need('admin', 'sales'), async (req, res, next) => {
+  try { res.json(await AI.sendDraft(req.pid, Number(req.params.id), Number(req.params.did), req.body.text, req.user)); } catch (e) { next(e); }
+});
+P.post('/conversations/:id/drafts/:did/discard', need('admin', 'sales'), wrap(req => AI.discardDraft(req.pid, Number(req.params.id), Number(req.params.did), req.user)));
+P.post('/conversations/:id/ai', need('admin', 'sales'), async (req, res, next) => {
+  try {
+    const c = db.prepare('SELECT id FROM conversations WHERE id=? AND page_id=? AND fb_psid IS NOT NULL').get(req.params.id, req.pid);
+    if (!c) throw new AppError('Không tìm thấy hội thoại Messenger', 404);
+    res.json({ draft_id: await AI.processConversation(c.id, { force: true, userId: req.user.id }) });
+  } catch (e) { next(e); }
+});
+P.post('/conversations/:id/flag', need('admin', 'sales'), wrap(req => {
+  const c = db.prepare('SELECT id FROM conversations WHERE id=? AND page_id=?').get(req.params.id, req.pid);
+  if (!c) throw new AppError('Không tìm thấy hội thoại', 404);
+  AI.setFlag(c.id, null);
+  D.log(req.pid, req.user.id, 'go_co_ai', `Hội thoại #${c.id}`);
+  return { ok: true };
+}));
 P.post('/conversations/:id/mark', need('admin', 'sales'), wrap(req => {
   const st = req.body.reply_state === 'chua_tra_loi' ? 'chua_tra_loi' : 'da_tra_loi';
   db.prepare('UPDATE conversations SET reply_state=? WHERE id=? AND page_id=? AND fb_psid IS NOT NULL').run(st, req.params.id, req.pid);

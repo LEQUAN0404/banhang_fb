@@ -1,7 +1,8 @@
 // Dữ liệu sản phẩm mẫu của Page "Japanbikini_fashion" (FB page_id 117228986319268) để phát triển/kiểm thử Messenger + AI.
 // Chạy được nhiều lần: chỉ thêm Page/sản phẩm còn thiếu, không đụng dữ liệu đã có.
 //   npm run seed:japanbikini            (CSDL mặc định data/banhang.db, hoặc theo DB_PATH)
-// Tồn kho đề bài cho theo từng mã; ở đây chia đều cho 3 size S/M/L (phần dư dồn vào S).
+// Tồn kho đề bài là TỔNG của mỗi mã; chia cho 3 size S/M/L đều nhất có thể (phần dư +1 lần lượt cho S, M), tổng khớp đúng.
+// Trên Railway: đặt biến SEED_JAPANBIKINI=1 rồi deploy lại (app tự chạy khi khởi động), hoặc chạy trong `railway ssh`: npm run seed:japanbikini
 process.env.DB_PATH = process.env.DB_PATH || require('path').join(__dirname, '..', 'data', 'banhang.db');
 const { db, tx } = require('../server/db');
 const D = require('../server/domain');
@@ -26,7 +27,7 @@ function seedJapanbikini() {
       const pidp = Number(db.prepare('INSERT INTO products (page_id,code,name,price,cost,low_threshold) VALUES (?,?,?,?,0,3)').run(page.id, code, name, price).lastInsertRowid);
       SIZES.forEach((s, i) => {
         const vid = Number(db.prepare('INSERT INTO variants (product_id,size,color,stock) VALUES (?,?,\'\',0)').run(pidp, s).lastInsertRowid);
-        const qty = Math.floor(total / 3) + (i === 0 ? total % 3 : 0);
+        const qty = Math.floor(total / 3) + (i < total % 3 ? 1 : 0);
         if (qty) D.stockMove(vid, qty, 'nhap', null, 'Tồn đầu kỳ (dữ liệu mẫu)', null);
       });
       added++;

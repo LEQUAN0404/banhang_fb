@@ -6,6 +6,8 @@
 // Khi app Meta còn ở chế độ Development (chưa qua App Review): chỉ người có vai trò Admin/Developer/Tester
 // trong app Meta mới kết nối được Page và chỉ nhận/gửi tin với những người có vai trò đó.
 const crypto = require('crypto');
+const EventEmitter = require('events');
+const events = new EventEmitter(); // 'inbound' (tin khách mới), 'outbound' (tin shop: sentVia app|inbox)
 const { db, tx } = require('./db');
 const D = require('./domain');
 const { AppError } = D;
@@ -151,9 +153,10 @@ async function handleWebhook(body) {
         const psid = echo ? ev.recipient.id : ev.sender.id;
         const convId = upsertConversation(fp.page_id, psid);
         const sentVia = echo ? (m.app_id && String(m.app_id) === cfg().appId ? 'app' : 'inbox') : null;
-        saveMessage(convId, { mid: m.mid, direction: echo ? 'out' : 'in', text: m.text, attachments: attOf(m.attachments), sentVia, at: fbTime(ev.timestamp || Date.now()) });
+        const isNew = saveMessage(convId, { mid: m.mid, direction: echo ? 'out' : 'in', text: m.text, attachments: attOf(m.attachments), sentVia, at: fbTime(ev.timestamp || Date.now()) });
         webhookLog(entry.id, echo ? 'echo' : 'message', true, (m.text || '').slice(0, 120));
-        if (!echo) fillProfileName(fp, convId, psid);
+        if (!echo) await fillProfileName(fp, convId, psid);
+        if (isNew) emit(echo ? 'outbound' : 'inbound', { pageId: fp.page_id, convId, mid: m.mid, text: m.text, sentVia });
       } catch (e) {
         webhookLog(entry.id, 'error', false, e.message);
       }
@@ -203,10 +206,15 @@ async function sendText(pid, convId, text, userId) {
     if (e.fbCode === 190) markError(fp, e);
     throw e;
   }
-  saveMessage(c.id, { mid: r.message_id, direction: 'out', text, sentVia: 'app', userId, at: D.nowStr() });
+  const prev = db.prepare('SELECT last_msg_at FROM conversations WHERE id=?').get(c.id).last_msg_at || '';
+  const now = D.nowStr();
+  saveMessage(c.id, { mid: r.message_id, direction: 'out', text, sentVia: 'app', userId, at: now > prev ? now : prev }); // lệch giờ với Meta không làm sai thứ tự
+  emit('outbound', { pageId: pid, convId: c.id, mid: r.message_id, text, sentVia: 'app' });
   D.log(pid, userId, 'gui_tin_messenger', `Hội thoại #${c.id}`);
   return { ok: true, message_id: r.message_id };
 }
+
+function emit(name, payload) { try { events.emit(name, payload); } catch (e) { console.error('Lỗi xử lý sự kiện', name, e); } }
 
 // ---------- Xác thực webhook ----------
 function verifySignature(raw, header) {
@@ -263,4 +271,4 @@ function status() {
   };
 }
 
-module.exports = { cfg, graph, SCOPES, connectPage, disconnectPage, syncPage, sendText, handleWebhook, verifySignature, oauthUrl, oauthExchange, inspectPageToken, status, fbPageByApp, encrypt, decrypt };
+module.exports = { events, cfg, graph, SCOPES, connectPage, disconnectPage, syncPage, sendText, handleWebhook, verifySignature, oauthUrl, oauthExchange, inspectPageToken, status, fbPageByApp, encrypt, decrypt };

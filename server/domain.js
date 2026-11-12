@@ -30,7 +30,9 @@ const PROVINCES = ['Hà Nội', 'TP. Hồ Chí Minh', 'Hải Phòng', 'Đà Nẵ
   'Lạng Sơn', 'Lào Cai', 'Lâm Đồng', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La',
   'Tây Ninh', 'Thái Nguyên', 'Thanh Hóa', 'Tuyên Quang', 'Vĩnh Long'];
 
+const AI_MODES = { off: 'Tắt', draft: 'Soạn nháp chờ duyệt' };
 const DEFAULT_SETTINGS = {
+  ai_mode: 'off',
   shop_province: 'Hà Nội',
   ship_fee_inner: 20000, ship_fee_outer: 30000, free_ship_from: 0,
   return_days: 7,
@@ -295,7 +297,7 @@ function nowStr() {
 function todayStr() { return nowStr().slice(0, 10); }
 
 module.exports = {
-  AppError, STATUS, TRANSITIONS, PAY_METHODS, ROLES, CARRIERS, SOURCES, PROVINCES, DEFAULT_SETTINGS,
+  AppError, AI_MODES, STATUS, TRANSITIONS, PAY_METHODS, ROLES, CARRIERS, SOURCES, PROVINCES, DEFAULT_SETTINGS,
   pageSettings, log, orderEvent, upsertCustomer, normPhone, validPhone, createOrder, changeStatus, stockMove,
   stockShortages, paymentStatus, calcShipFee, nowStr, todayStr,
 };

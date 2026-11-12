@@ -62,7 +62,12 @@ test('kết nối Page, đồng bộ, nhận tin, trả lời', async () => {
   const jb = db.prepare("SELECT id FROM pages WHERE name='Japanbikini_fashion'").get().id;
   const prods = (await admin(`/api/p/${jb}/products`)).data;
   assert.equal(prods.length, 6, 'có 6 sản phẩm mẫu Japanbikini');
-  assert.equal(prods.find(p => p.code === 'QOX01').variants.reduce((s, v) => s + v.stock, 0), 45);
+  for (const [code, total] of [['QOX01', 45], ['QD01', 44], ['QK01', 40], ['ASM01', 23], ['ACT01', 43], ['AL01', 43]]) {
+    const vs = prods.find(p => p.code === code).variants;
+    assert.deepEqual(vs.map(v => v.size), ['S', 'M', 'L']);
+    assert.equal(vs.reduce((s, v) => s + v.stock, 0), total, code + ' tổng tồn khớp');
+    assert.ok(Math.max(...vs.map(v => v.stock)) - Math.min(...vs.map(v => v.stock)) <= 1, code + ' chia đều');
+  }
 
   assert.equal((await sales('/api/admin/meta')).status, 403, 'chỉ quản trị được kết nối');
   let r = await admin('/api/admin/meta/connect', { token: 'sai-token', app_page_id: jb });

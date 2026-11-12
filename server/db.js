@@ -157,12 +157,32 @@ const convCols = db.prepare('PRAGMA table_info(conversations)').all().map(c => c
 for (const [col, def] of [['fb_psid', 'TEXT'], ['fb_thread_id', 'TEXT'], ['last_msg_at', 'TEXT'], ['last_msg_from', 'TEXT'], ['last_msg_text', 'TEXT'], ['reply_state', 'TEXT']]) {
   if (!convCols.includes(col)) db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${def}`);
 }
+for (const [col, def] of [['ai_state', 'TEXT'], ['flag', 'TEXT'], ['flag_at', 'TEXT']]) {
+  if (!convCols.includes(col)) db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${def}`);
+}
+// ---------- AI trả lời tin nhắn ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS ai_drafts (
+  id INTEGER PRIMARY KEY, page_id INTEGER NOT NULL REFERENCES pages(id), conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  trigger_mid TEXT, kind TEXT NOT NULL DEFAULT 'reply', reply_text TEXT, language TEXT, intent TEXT,
+  flag_reason TEXT, flag_note TEXT, order_json TEXT, ship_quote TEXT, checks TEXT,
+  status TEXT NOT NULL DEFAULT 'cho_duyet' CHECK (status IN ('cho_duyet','da_gui','bo_qua','thay_the','loi','ghi_nhan')),
+  error TEXT, model TEXT, usage TEXT, reviewed_by INTEGER, sent_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS ix_drafts_conv ON ai_drafts(conversation_id, id);
+CREATE INDEX IF NOT EXISTS ix_drafts_page_status ON ai_drafts(page_id, status);
+`);
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_psid ON conversations(page_id, fb_psid) WHERE fb_psid IS NOT NULL');
 
+// Giao dịch lồng nhau được: lớp trong dùng SAVEPOINT
+let txDepth = 0;
 function tx(fn) {
-  db.exec('BEGIN');
-  try { const r = fn(); db.exec('COMMIT'); return r; }
-  catch (e) { db.exec('ROLLBACK'); throw e; }
+  const sp = txDepth ? `sp${txDepth}` : null;
+  db.exec(sp ? `SAVEPOINT ${sp}` : 'BEGIN');
+  txDepth++;
+  try { const r = fn(); txDepth--; db.exec(sp ? `RELEASE ${sp}` : 'COMMIT'); return r; }
+  catch (e) { txDepth--; db.exec(sp ? `ROLLBACK TO ${sp}; RELEASE ${sp}` : 'ROLLBACK'); throw e; }
 }
 
 module.exports = { db, tx };

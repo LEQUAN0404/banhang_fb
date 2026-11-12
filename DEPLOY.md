@@ -38,6 +38,13 @@ Nếu kết nối Messenger (tin nhắn Facebook Page), thêm cả các biến d
 | `TOKEN_ENCRYPTION_KEY` | (nên có) chuỗi ngẫu nhiên dài để mã hoá token Page |
 | `META_LOGIN_CONFIG_ID` | (tuỳ chọn) Configuration ID nếu dùng Facebook Login for Business |
 
+Nếu muốn AI trả lời tin nhắn, thêm biến dưới đây. Chi tiết xem [docs/AI.md](docs/AI.md).
+
+| Tên | Giá trị |
+|---|---|
+| `ANTHROPIC_API_KEY` | API key tạo tại console.anthropic.com |
+| `SEED_JAPANBIKINI` | (tuỳ chọn) `1` để nạp 6 sản phẩm mẫu của Page Japanbikini_fashion khi app khởi động. Chạy nhiều lần không bị trùng; nạp xong có thể xoá biến này |
+
 Lưu lại và Railway tự deploy lại.
 
 ## Bước 5 — Lấy địa chỉ web
