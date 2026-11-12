@@ -9,7 +9,9 @@ function fakeServer(handler) {
       const u = new URL(req.url, 'http://x');
       const call = { method: req.method, path: u.pathname, q: Object.fromEntries(u.searchParams), headers: req.headers, body: body ? JSON.parse(body) : null };
       calls.push(call);
-      const [status, out] = await handler(call);
+      let status, out;
+      try { [status, out] = await handler(call); }
+      catch (e) { calls.errors = (calls.errors || []).concat(e); console.error('Lỗi trong máy chủ giả lập:', e.message); [status, out] = [400, { type: 'error', error: { type: 'invalid_request_error', message: 'assert: ' + e.message } }]; }
       res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(out));
     });
   });

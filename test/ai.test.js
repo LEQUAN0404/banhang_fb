@@ -103,6 +103,7 @@ test('mặc cả → chỉ nháp + cờ báo chủ shop; công cụ GHTK chưa c
   assert.equal((await admin(`/api/p/${jb}/messenger`)).data.flagged >= 1, true);
   assert.equal((await admin(`/api/p/${jb}/conversations?flag=1`)).data.some(x => x.id === c.id), true);
   // chủ shop tự trả lời trong Page inbox → nháp bị thay thế, gỡ cờ thủ công
+  claudeQueue.push(H.claudeJson({ is_closing: false, complete: false, missing: [], order: H.emptyOrder })); // quy tắc j: không phải tin chốt đơn
   await H.hook(base, H.msg('2004', 'm_d2', 'Dạ shop giảm 10k cho chị nha', { echo: true }));
   await H.settle(AI);
   assert.equal(drafts(c.id)[0].status, 'thay_the');

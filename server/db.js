@@ -160,6 +160,11 @@ for (const [col, def] of [['fb_psid', 'TEXT'], ['fb_thread_id', 'TEXT'], ['last_
 for (const [col, def] of [['ai_state', 'TEXT'], ['flag', 'TEXT'], ['flag_at', 'TEXT']]) {
   if (!convCols.includes(col)) db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${def}`);
 }
+const prodCols = db.prepare('PRAGMA table_info(products)').all().map(c => c.name);
+if (!prodCols.includes('weight_g')) db.exec('ALTER TABLE products ADD COLUMN weight_g INTEGER NOT NULL DEFAULT 300'); // khối lượng (gram) để tính phí GHTK
+const orderCols = db.prepare('PRAGMA table_info(orders)').all().map(c => c.name);
+if (!orderCols.includes('source_mid')) db.exec('ALTER TABLE orders ADD COLUMN source_mid TEXT'); // mid tin nhắn chốt đơn — chống ghi trùng
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_source_mid ON orders(source_mid) WHERE source_mid IS NOT NULL');
 // ---------- AI trả lời tin nhắn ----------
 db.exec(`
 CREATE TABLE IF NOT EXISTS ai_drafts (

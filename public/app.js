@@ -516,6 +516,7 @@ async function orderDetail(v, id) {
       ${can('admin', 'sales') && !['da_huy'].includes(o.status) ? '<button class="btn" id="pay">+ Ghi nhận thanh toán</button>' : ''}
       ${o.status === 'da_gui' ? '<button class="btn" id="fail">Giao thất bại</button>' : ''}
       ${o.status === 'da_gui' && can('admin', 'warehouse') ? '<button class="btn" id="trk">Sửa vận đơn</button>' : ''}
+      ${!o.tracking_code && ['moi_tao', 'da_xac_nhan', 'dang_dong_goi'].includes(o.status) ? '<button class="btn" id="ghtk">🚚 Tạo vận đơn GHTK</button>' : ''}
       ${['giao_thanh_cong', 'hoan_thanh', 'dang_doi_tra'].includes(o.status) && can('admin', 'sales') ? '<button class="btn" id="care">Ghi chăm sóc sau bán</button>' : ''}
       ${['giao_thanh_cong', 'dang_doi_tra'].includes(o.status) && can('admin', 'sales') ? `<a class="btn" href="#/orders/new?parent=${o.id}">Tạo đơn đổi</a>` : ''}
       ${!next.length ? '<span class="muted small">Không có bước tiếp theo cho vai trò của bạn.</span>' : ''}</div></div>
@@ -524,7 +525,7 @@ async function orderDetail(v, id) {
         <div class="card"><h2>Giao hàng</h2>
           <div><b>${esc(o.ship_name)}</b> · <a href="tel:${esc(o.ship_phone)}">${esc(o.ship_phone)}</a> · <a href="#/customers/${o.customer.id}">${esc(o.customer.code)}</a></div>
           <div>${esc(addr(o))}</div>${o.note ? `<div class="small">📝 ${esc(o.note)}</div>` : ''}
-          ${o.tracking_code ? `<div class="small" style="margin-top:6px">🚚 ${esc(o.carrier)} · <b>${esc(o.tracking_code)}</b> · gửi ${dt(o.shipped_at)}${o.delivered_at ? ' · giao ' + dt(o.delivered_at) : ''}${o.ship_cost_actual != null ? ' · phí thực ' + money(o.ship_cost_actual) : ''}</div>` : ''}
+          ${o.tracking_code ? `<div class="small" style="margin-top:6px">🚚 ${esc(o.carrier)} · <b>${esc(o.tracking_code)}</b>${o.shipped_at ? ' · gửi ' + dt(o.shipped_at) : ' · chưa bàn giao'}${o.delivered_at ? ' · giao ' + dt(o.delivered_at) : ''}${o.ship_cost_actual != null ? ' · phí thực ' + money(o.ship_cost_actual) : ''}</div>` : ''}
           ${o.delivery_fail_count ? `<div class="small" style="color:var(--danger)">Giao thất bại ${o.delivery_fail_count} lần: ${esc(o.last_fail_note)}</div>` : ''}
           ${o.cancel_reason ? `<div class="small" style="color:var(--danger)">Lý do hủy: ${esc(o.cancel_reason)}</div>` : ''}${o.return_reason ? `<div class="small" style="color:var(--danger)">Lý do hoàn: ${esc(o.return_reason)}</div>` : ''}
           ${o.care_status ? `<div class="small">Chăm sóc: <b>${esc(CARE[o.care_status])}</b> ${esc(o.care_note || '')}</div>` : ''}
@@ -589,6 +590,7 @@ async function orderDetail(v, id) {
     { type: 'html', html: `<p class="small">Liên hệ khách trong ngày, hẹn giao lại tối đa 2 lần. Đã thất bại ${o.delivery_fail_count} lần.</p>` },
     { name: 'note', label: 'Lý do / lịch hẹn giao lại', required: true },
   ], async (f, close) => { await P(`/orders/${id}/delivery-fail`, { body: f }); close(); copy(fillTpl(st.tpl_fail, o)); reload(); }));
+  $('#ghtk') && ($('#ghtk').onclick = () => run(async () => { $('#ghtk').disabled = true; try { const r = await P(`/orders/${id}/ghtk`, { body: {} }); toast('Đã tạo vận đơn GHTK ' + r.tracking_code); reload(); } finally { if ($('#ghtk')) $('#ghtk').disabled = false; } }));
   $('#trk') && ($('#trk').onclick = () => formModal('Sửa vận đơn', [
     { name: 'carrier', label: 'Hãng', type: 'select', options: M.CARRIERS, value: o.carrier }, { name: 'tracking_code', label: 'Mã vận đơn', value: o.tracking_code },
     { name: 'ship_cost_actual', label: 'Phí ship thực tế', type: 'number', value: o.ship_cost_actual ?? '' },
@@ -685,6 +687,7 @@ function productModal(p) {
       <label class="f"><span>Giá bán</span><input name="price" type="number" min="0" step="1000" value="${esc(p.price ?? '')}"></label>
       <label class="f"><span>Giá vốn</span><input name="cost" type="number" min="0" step="1000" value="${esc(p.cost ?? '')}"></label>
       <label class="f"><span>Ngưỡng cảnh báo sắp hết (mỗi biến thể)</span><input name="low_threshold" type="number" min="0" value="${esc(p.low_threshold)}"></label>
+      <label class="f"><span>Khối lượng 1 sản phẩm (gram) — tính phí GHTK</span><input name="weight_g" type="number" min="1" value="${esc(p.weight_g ?? 300)}"></label>
       <label class="f"><span>Link ảnh</span><input name="image_url" value="${esc(p.image_url || '')}"></label></div>
     ${p.id ? `<label class="row"><input type="checkbox" name="active" ${p.active ? 'checked' : ''}> Đang bán</label>` : ''}
     <div><h3>Biến thể size / màu</h3><p class="small muted">${p.id ? 'Tồn kho của biến thể đã có chỉ thay đổi qua phiếu nhập/điều chỉnh.' : 'Nhập tồn đầu kỳ cho từng biến thể.'} Nhập nhanh: <input id="bulk" placeholder="VD size: 70B,75B,80B · màu: Đen,Da" style="width:auto;min-width:220px"> <button type="button" class="btn sm" id="gen">Tạo tổ hợp</button></p>
@@ -836,6 +839,7 @@ async function viewSettings(v) {
       ${ms.connected ? '' : '<div class="alert small">Page này chưa kết nối Messenger — AI chỉ chạy với hội thoại Messenger.</div>'}
       <label class="f"><span>Chế độ</span><select name="ai_mode">${Object.entries(S.meta.AI_MODES).map(([k, l]) => `<option value="${k}" ${s.ai_mode === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
       <p class="small muted">AI chỉ dùng dữ liệu Sản phẩm & Kho của Page này, trả lời đúng ngôn ngữ khách, luôn kết thúc bằng một câu cảm ơn. Khách khiếu nại, mặc cả, hỏi ngoài phạm vi hoặc hỏi thông tin cá nhân của chủ shop → AI chỉ soạn nháp và gắn cờ 🚩 báo chủ shop.</p></div>
+    <div class="card grid" id="ghtkcard"><h2>🚚 Kết nối GHTK</h2><div class="muted small">Đang tải…</div></div>
     <div class="card grid"><h2>Phí ship & thanh toán</h2><div class="grid g3">
       <label class="f"><span>Tỉnh/thành của shop</span><select name="shop_province">${S.meta.PROVINCES.map(p => `<option ${s.shop_province === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       <label class="f"><span>Phí ship nội tỉnh</span><input type="number" name="ship_fee_inner" value="${s.ship_fee_inner}"></label>
@@ -851,11 +855,32 @@ async function viewSettings(v) {
       ${tpls.map(([k, l]) => `<label class="f"><span>${l}</span><textarea name="${k}" rows="5">${esc(s[k])}</textarea></label>`).join('')}</div>
     <div class="card grid"><h2>Danh mục (mỗi dòng một mục)</h2><div class="grid g2">${lists.map(([k, l]) => `<label class="f"><span>${l}</span><textarea name="${k}" rows="5">${esc((s[k] || []).join('\n'))}</textarea></label>`).join('')}</div></div>
     <button class="btn p">Lưu cài đặt</button></form>`;
+  ghtkCard();
   $('#sf').onsubmit = e => {
     e.preventDefault(); const f = formData(e.target);
+    for (const k of Object.keys(f)) if (k.startsWith('g_')) delete f[k];
     for (const [k] of lists) f[k] = f[k].split('\n').map(x => x.trim()).filter(Boolean);
     run(async () => { await P('/settings', { method: 'PUT', body: f }); S.settings = await P('/settings'); toast('Đã lưu cài đặt'); });
   };
+}
+
+async function ghtkCard() {
+  const box = $('#ghtkcard'); if (!box) return;
+  const g = await P('/ghtk');
+  const inp = (k, l, extra = '') => `<label class="f"><span>${l}</span><input name="g_${k}" value="${esc(g[k] || '')}" ${extra}></label>`;
+  box.innerHTML = `<h2>🚚 Kết nối GHTK</h2>
+    <div class="alert small ${g.configured ? 'ok' : ''}">${g.configured ? '✅ Đã cấu hình — AI tra phí ship thật và tự tạo vận đơn GHTK khi chốt đơn.' : '⏳ <b>Chờ cấu hình</b> — còn thiếu: ' + g.missing.map(esc).join(', ') + '. Trong lúc chờ, AI nói khách "shop đang kiểm tra phí ship" và đơn được ghi với phí ship = 0 (cập nhật khi tạo vận đơn).'}</div>
+    <div class="grid g3">
+      <label class="f"><span>API token GHTK ${g.has_token ? '(đã lưu — để trống nếu không đổi)' : ''}</span><input name="g_token" type="password" autocomplete="off" placeholder="${g.has_token ? '••••••••' : 'Dán token từ trang khách hàng GHTK'}"></label>
+      ${inp('client_source', 'X-Client-Source (mã đối tác, nếu GHTK cấp)')}
+      <label class="f"><span>Môi trường</span><select name="g_env"><option value="production" ${g.env === 'production' ? 'selected' : ''}>Thật (production)</option><option value="staging" ${g.env === 'staging' ? 'selected' : ''}>Thử nghiệm (staging)</option></select></label>
+      ${inp('pick_name', 'Tên người gửi / shop')}${inp('pick_tel', 'SĐT lấy hàng', 'inputmode="tel"')}${inp('pick_address', 'Địa chỉ lấy hàng (số nhà, đường)')}
+      ${inp('pick_province', 'Tỉnh/thành lấy hàng', 'list="provs"')}${inp('pick_district', 'Quận/huyện lấy hàng (nếu có)')}${inp('pick_ward', 'Phường/xã lấy hàng')}
+    </div><datalist id="provs">${S.meta.PROVINCES.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+    <div class="row"><button type="button" class="btn p" id="gsave">Lưu cấu hình GHTK</button>${g.has_token ? '<button type="button" class="btn d sm" id="gclear">Xoá token</button>' : ''}</div>`;
+  const collect = () => { const f = {}; $$('[name^=g_]', box).forEach(el => { f[el.name.slice(2)] = el.value; }); if (!f.token) delete f.token; return f; };
+  $('#gsave').onclick = () => run(async () => { await P('/ghtk', { method: 'PUT', body: collect() }); toast('Đã lưu cấu hình GHTK'); ghtkCard(); });
+  if ($('#gclear')) $('#gclear').onclick = () => confirm('Xoá token GHTK của Page này?') && run(async () => { await P('/ghtk', { method: 'PUT', body: { ...collect(), clear_token: true } }); ghtkCard(); });
 }
 
 // ===== Quản trị: Page, tài khoản =====

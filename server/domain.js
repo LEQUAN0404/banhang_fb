@@ -30,7 +30,7 @@ const PROVINCES = ['Hà Nội', 'TP. Hồ Chí Minh', 'Hải Phòng', 'Đà Nẵ
   'Lạng Sơn', 'Lào Cai', 'Lâm Đồng', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La',
   'Tây Ninh', 'Thái Nguyên', 'Thanh Hóa', 'Tuyên Quang', 'Vĩnh Long'];
 
-const AI_MODES = { off: 'Tắt', draft: 'Soạn nháp chờ duyệt' };
+const AI_MODES = { off: 'Tắt', draft: 'Soạn nháp chờ duyệt', auto: 'Tự gửi (tự chốt đơn, trừ kho, tạo vận đơn)' };
 const DEFAULT_SETTINGS = {
   ai_mode: 'off',
   shop_province: 'Hà Nội',

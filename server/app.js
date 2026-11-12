@@ -7,6 +7,7 @@ const { hashPassword, verifyPassword, createSession, userFromReq } = require('./
 
 const Meta = require('./meta');
 const AI = require('./ai');
+const GHTK = require('./ghtk');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -291,8 +292,8 @@ P.post('/products', need('admin', 'warehouse'), wrap(req => {
   if (!b.code || !b.name) throw new AppError('Cần mã SP và tên SP');
   if (!(b.variants || []).length) throw new AppError('Cần ít nhất 1 biến thể size/màu');
   return tx(() => {
-    const r = db.prepare('INSERT INTO products (page_id,code,name,image_url,price,cost,low_threshold) VALUES (?,?,?,?,?,?,?)')
-      .run(req.pid, String(b.code).trim().toUpperCase(), b.name.trim(), b.image_url || null, int(b.price) || 0, int(b.cost) || 0, int(b.low_threshold) ?? 3);
+    const r = db.prepare('INSERT INTO products (page_id,code,name,image_url,price,cost,low_threshold,weight_g) VALUES (?,?,?,?,?,?,?,?)')
+      .run(req.pid, String(b.code).trim().toUpperCase(), b.name.trim(), b.image_url || null, int(b.price) || 0, int(b.cost) || 0, int(b.low_threshold) ?? 3, Math.max(1, int(b.weight_g) || 300));
     const id = Number(r.lastInsertRowid);
     saveVariants(id, b.variants, req.user.id);
     D.log(req.pid, req.user.id, 'tao_sp', b.code);
@@ -304,9 +305,9 @@ P.put('/products/:id', need('admin', 'warehouse'), wrap(req => {
   const p = db.prepare('SELECT * FROM products WHERE id=? AND page_id=?').get(req.params.id, req.pid);
   if (!p) throw new AppError('Không tìm thấy sản phẩm', 404);
   return tx(() => {
-    db.prepare('UPDATE products SET code=?, name=?, image_url=?, price=?, cost=?, low_threshold=?, active=? WHERE id=?')
+    db.prepare('UPDATE products SET code=?, name=?, image_url=?, price=?, cost=?, low_threshold=?, active=?, weight_g=? WHERE id=?')
       .run(String(b.code ?? p.code).trim().toUpperCase(), b.name ?? p.name, b.image_url ?? p.image_url, int(b.price) ?? p.price, int(b.cost) ?? p.cost,
-        int(b.low_threshold) ?? p.low_threshold, b.active == null ? p.active : (b.active ? 1 : 0), p.id);
+        int(b.low_threshold) ?? p.low_threshold, b.active == null ? p.active : (b.active ? 1 : 0), Math.max(1, int(b.weight_g) || p.weight_g || 300), p.id);
     saveVariants(p.id, b.variants, req.user.id);
     D.log(req.pid, req.user.id, 'sua_sp', p.code);
     return { ok: true };
@@ -390,7 +391,7 @@ P.get('/messenger', wrap(req => {
   const flagged = db.prepare('SELECT COUNT(*) n FROM conversations WHERE page_id=? AND flag IS NOT NULL').get(req.pid).n;
   const drafts = db.prepare("SELECT COUNT(DISTINCT conversation_id) n FROM ai_drafts WHERE page_id=? AND status='cho_duyet'").get(req.pid).n;
   return { connected: !!fp, fb_name: fp?.fb_name || null, last_sync_at: fp?.last_sync_at || null, last_event_at: fp?.last_event_at || null, last_error: fp?.last_error || null,
-    unanswered, flagged, drafts, ai: { configured: AI.enabled(), mode: D.pageSettings(req.pid).ai_mode, mode_label: D.AI_MODES[D.pageSettings(req.pid).ai_mode] }, flag_reasons: AI.FLAG_REASONS };
+    unanswered, flagged, drafts, ghtk_ready: GHTK.ready(req.pid), ai: { configured: AI.enabled(), mode: D.pageSettings(req.pid).ai_mode, mode_label: D.AI_MODES[D.pageSettings(req.pid).ai_mode] }, flag_reasons: AI.FLAG_REASONS };
 }));
 P.post('/messenger/sync', need('admin', 'sales'), async (req, res, next) => {
   try { res.json(await Meta.syncPage(req.pid)); } catch (e) { next(e); }
@@ -560,6 +561,14 @@ P.post('/orders/:id/tracking', need('admin', 'warehouse'), wrap(req => {
   D.orderEvent(o.id, 'tracking', req.user.id, `Cập nhật vận đơn: ${req.body.carrier || o.carrier} ${req.body.tracking_code || o.tracking_code}`);
   return { ok: true };
 }));
+P.post('/orders/:id/ghtk', need('admin', 'sales', 'warehouse'), async (req, res, next) => {
+  try { res.json(await GHTK.createShipment(req.pid, Number(req.params.id), req.user.id)); } catch (e) { next(e); }
+});
+P.get('/ghtk', need('admin'), wrap(req => GHTK.publicConfig(req.pid)));
+P.put('/ghtk', need('admin'), wrap(req => GHTK.saveConfig(req.pid, req.body, req.user.id)));
+P.post('/ghtk/quote', need('admin'), async (req, res, next) => {
+  try { res.json(await GHTK.quote(req.pid, req.body)); } catch (e) { next(e); }
+});
 P.post('/orders/:id/care', need('admin', 'sales'), wrap(req => {
   const o = db.prepare('SELECT * FROM orders WHERE id=? AND page_id=?').get(req.params.id, req.pid);
   if (!o) throw new AppError('Không tìm thấy đơn', 404);

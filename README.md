@@ -38,10 +38,11 @@ Dữ liệu mẫu Page Japanbikini_fashion (6 sản phẩm, size S/M/L): `npm ru
 - `server/app.js` — API (đăng nhập, phân quyền, theo Page) + webhook `/webhooks/meta`
 - `server/meta.js` — Messenger qua Graph API: đăng nhập Facebook, kết nối Page, webhook (kiểm tra chữ ký `X-Hub-Signature-256`), đồng bộ, gửi tin; ghi chú lý do từng quyền xin
 - `server/ai.js` — AI (Claude API) soạn trả lời theo quy tắc shop, kiểm tra tự động, nháp chờ duyệt — xem [docs/AI.md](docs/AI.md)
+- `server/ghtk.js` — GHTK: cấu hình theo Page, tra phí/thời gian giao, tạo vận đơn
 - `server/secret.js` — mã hoá Page Access Token (AES-256-GCM)
 - `public/` — giao diện (SPA thuần JS, không cần build), `sw.js` + `manifest.webmanifest` cho PWA
 
 ## Việc tiếp theo
 - Đưa lên mạng: xem [DEPLOY.md](DEPLOY.md) (Railway + ổ lưu dữ liệu).
-- Messenger — giai đoạn 1 (đã có): kết nối Page, webhook, hội thoại chưa/đã trả lời, trả lời từ app. Giai đoạn 2 (đã có): AI soạn nháp chờ duyệt. Giai đoạn 3: AI tự gửi + ghi đơn/trừ kho + vận đơn GHTK.
+- Messenger — giai đoạn 1 (đã có): kết nối Page, webhook, hội thoại chưa/đã trả lời, trả lời từ app. Giai đoạn 2–3 (đã có): AI soạn nháp chờ duyệt hoặc tự gửi, ghi đơn/trừ kho khi chốt trong chat, ghi nhận đơn chủ shop chốt tay, vận đơn GHTK — xem [docs/AI.md](docs/AI.md).
 - Kết nối API hãng vận chuyển (tạo vận đơn, tra trạng thái tự động).

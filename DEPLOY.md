@@ -38,7 +38,7 @@ Nếu kết nối Messenger (tin nhắn Facebook Page), thêm cả các biến d
 | `TOKEN_ENCRYPTION_KEY` | (nên có) chuỗi ngẫu nhiên dài để mã hoá token Page |
 | `META_LOGIN_CONFIG_ID` | (tuỳ chọn) Configuration ID nếu dùng Facebook Login for Business |
 
-Nếu muốn AI trả lời tin nhắn, thêm biến dưới đây. Chi tiết xem [docs/AI.md](docs/AI.md).
+Nếu muốn AI trả lời tin nhắn, thêm biến dưới đây. Chi tiết xem [docs/AI.md](docs/AI.md). Token GHTK không đặt ở đây mà nhập trong app: **Cài đặt Page → 🚚 Kết nối GHTK**.
 
 | Tên | Giá trị |
 |---|---|
