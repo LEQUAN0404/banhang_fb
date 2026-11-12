@@ -5,7 +5,26 @@ const D = require('./domain');
 const { AppError } = D;
 const { hashPassword, verifyPassword, createSession, userFromReq } = require('./auth');
 
+const Meta = require('./meta');
+
 const app = express();
+app.set('trust proxy', 1);
+
+// ---------- Webhook Meta (đặt trước express.json để giữ nguyên body gốc khi kiểm tra chữ ký) ----------
+app.get('/webhooks/meta', (req, res) => {
+  const vt = Meta.cfg().verifyToken;
+  if (req.query['hub.mode'] === 'subscribe' && vt && req.query['hub.verify_token'] === vt) return res.status(200).send(String(req.query['hub.challenge'] || ''));
+  res.sendStatus(403);
+});
+app.post('/webhooks/meta', express.raw({ type: '*/*', limit: '5mb' }), (req, res) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!Meta.verifySignature(raw, req.get('x-hub-signature-256'))) return res.sendStatus(401);
+  let body;
+  try { body = JSON.parse(raw.toString('utf8')); } catch { return res.sendStatus(400); }
+  res.sendStatus(200); // trả lời Meta ngay, xử lý sau
+  Meta.handleWebhook(body).catch(e => console.error('Webhook lỗi:', e));
+});
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 
@@ -129,6 +148,58 @@ app.get('/api/admin/backup', need('admin'), (req, res, next) => {
 app.get('/api/admin/activity', need('admin'), wrap(() => db.prepare(`SELECT a.*, u.name user_name, p.name page_name FROM activity_log a
   LEFT JOIN users u ON u.id=a.user_id LEFT JOIN pages p ON p.id=a.page_id ORDER BY a.id DESC LIMIT 300`).all()));
 
+// ---------- Quản trị: kết nối Facebook ----------
+const baseUrl = req => (process.env.APP_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : `${req.protocol}://${req.get('host')}`)).replace(/\/$/, '');
+const redirectUri = req => baseUrl(req) + '/api/meta/oauth/callback';
+app.get('/api/admin/meta', need('admin'), wrap(req => ({ ...Meta.status(), webhook_url: baseUrl(req) + '/webhooks/meta', redirect_uri: redirectUri(req), privacy_url: baseUrl(req) + '/privacy.html' })));
+app.get('/api/admin/meta/oauth/start', need('admin'), (req, res, next) => {
+  try {
+    const c = Meta.cfg();
+    if (!c.appId || !c.appSecret) throw new AppError('Chưa cấu hình META_APP_ID / META_APP_SECRET trên server');
+    const state = require('crypto').randomBytes(24).toString('hex');
+    db.prepare("DELETE FROM fb_oauth WHERE expires_at < datetime('now')").run();
+    db.prepare("INSERT INTO fb_oauth (state,user_id,expires_at) VALUES (?,?,datetime('now','+20 minutes'))").run(state, req.user.id);
+    res.redirect(Meta.oauthUrl(state, redirectUri(req)));
+  } catch (e) { next(e); }
+});
+app.get('/api/meta/oauth/callback', need('admin'), async (req, res) => {
+  const st = db.prepare("SELECT * FROM fb_oauth WHERE state=? AND user_id=? AND expires_at >= datetime('now')").get(String(req.query.state || ''), req.user.id);
+  const back = (q) => res.redirect('/#/admin/facebook?' + new URLSearchParams(q));
+  if (!st) return back({ err: 'Phiên kết nối đã hết hạn hoặc không hợp lệ — bấm Kết nối lại' });
+  if (req.query.error) return back({ err: 'Bạn đã huỷ hoặc Facebook từ chối: ' + (req.query.error_description || req.query.error) });
+  try {
+    const pages = await Meta.oauthExchange(String(req.query.code || ''), redirectUri(req));
+    db.prepare('UPDATE fb_oauth SET pages_enc=? WHERE state=?').run(Meta.encrypt(JSON.stringify(pages)), st.state);
+    back({ pick: st.state });
+  } catch (e) { back({ err: e.message }); }
+});
+const oauthPages = (state, userId) => {
+  const st = db.prepare("SELECT * FROM fb_oauth WHERE state=? AND user_id=? AND expires_at >= datetime('now')").get(String(state || ''), userId);
+  if (!st || !st.pages_enc) throw new AppError('Phiên kết nối đã hết hạn — bấm Kết nối Facebook lại');
+  return JSON.parse(Meta.decrypt(st.pages_enc));
+};
+app.get('/api/admin/meta/oauth/:state', need('admin'), wrap(req => oauthPages(req.params.state, req.user.id).map(({ token, ...p }) => p)));
+app.post('/api/admin/meta/connect', need('admin'), async (req, res, next) => {
+  try {
+    const b = req.body;
+    let fbPage;
+    if (b.state) {
+      fbPage = oauthPages(b.state, req.user.id).find(p => p.id === String(b.fb_page_id));
+      if (!fbPage) throw new AppError('Không tìm thấy Page Facebook đã chọn');
+      if (fbPage.tasks.length && !fbPage.tasks.includes('MESSAGING') && !fbPage.tasks.includes('MANAGE')) throw new AppError('Tài khoản của bạn không có quyền nhắn tin trên Page này');
+    } else if (b.token) {
+      const info = await Meta.inspectPageToken(String(b.token).trim());
+      fbPage = { ...info, token: String(b.token).trim() };
+    } else throw new AppError('Thiếu thông tin Page');
+    if (!b.app_page_id && !b.new_page_name) throw new AppError('Chọn Page trong app để gắn, hoặc nhập tên Page mới');
+    const pid = await Meta.connectPage({ appPageId: b.app_page_id, newPageName: b.new_page_name, fbPageId: fbPage.id, fbName: fbPage.name, token: fbPage.token, userId: req.user.id });
+    res.json({ ok: true, page_id: pid, fb_name: fbPage.name });
+  } catch (e) { next(e); }
+});
+app.delete('/api/admin/meta/pages/:pid', need('admin'), async (req, res, next) => {
+  try { await Meta.disconnectPage(Number(req.params.pid), req.user.id); res.json({ ok: true }); } catch (e) { next(e); }
+});
+
 // ---------- Phạm vi Page ----------
 const P = express.Router({ mergeParams: true });
 app.use('/api/p/:pid', (req, res, next) => {
@@ -171,6 +242,7 @@ P.get('/dashboard', wrap(req => {
     low_stock: db.prepare(`SELECT v.id,v.size,v.color,v.stock,p.name,p.code,p.low_threshold FROM variants v JOIN products p ON p.id=v.product_id
       WHERE p.page_id=? AND p.active=1 AND v.active=1 AND v.stock<=p.low_threshold ORDER BY v.stock, p.name`).all(pid),
     open_conversations: db.prepare(`SELECT COUNT(*) n FROM conversations WHERE page_id=? AND outcome='dang_tu_van'`).get(pid).n,
+    unanswered_messages: db.prepare(`SELECT COUNT(*) n FROM conversations WHERE page_id=? AND reply_state='chua_tra_loi'`).get(pid).n,
   };
   const reconciledToday = !!db.prepare('SELECT 1 FROM reconciliations WHERE page_id=? AND day=?').get(pid, today);
   return { today, byStatus, todayOrders, collected, convToday, tasks, reconciledToday };
@@ -298,10 +370,33 @@ P.put('/customers/:id', need('admin', 'sales'), wrap(req => {
 P.get('/conversations', wrap(req => {
   const where = ['c.page_id=?'], args = [req.pid];
   if (req.query.outcome) { where.push('c.outcome=?'); args.push(req.query.outcome); }
-  if (req.query.q) { where.push('(c.customer_name LIKE ? OR c.phone LIKE ? OR c.summary LIKE ? OR c.interest LIKE ?)'); const q = `%${req.query.q}%`; args.push(q, q, q, q); }
+  if (req.query.q) { where.push('(c.customer_name LIKE ? OR c.phone LIKE ? OR c.summary LIKE ? OR c.interest LIKE ? OR c.last_msg_text LIKE ?)'); const q = `%${req.query.q}%`; args.push(q, q, q, q, q); }
   if (req.query.tag) { where.push('c.tags LIKE ?'); args.push(`%${req.query.tag}%`); }
+  if (['chua_tra_loi', 'da_tra_loi'].includes(req.query.reply)) { where.push('c.reply_state=?'); args.push(req.query.reply); }
   return db.prepare(`SELECT c.*, u.name user_name, o.code order_code FROM conversations c LEFT JOIN users u ON u.id=c.user_id
-    LEFT JOIN orders o ON o.id=c.order_id WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC LIMIT 300`).all(...args);
+    LEFT JOIN orders o ON o.id=c.order_id WHERE ${where.join(' AND ')} ORDER BY COALESCE(c.last_msg_at, c.updated_at) DESC LIMIT 300`).all(...args);
+}));
+P.get('/messenger', wrap(req => {
+  const fp = Meta.fbPageByApp(req.pid);
+  const unanswered = db.prepare("SELECT COUNT(*) n FROM conversations WHERE page_id=? AND reply_state='chua_tra_loi'").get(req.pid).n;
+  return { connected: !!fp, fb_name: fp?.fb_name || null, last_sync_at: fp?.last_sync_at || null, last_event_at: fp?.last_event_at || null, last_error: fp?.last_error || null, unanswered };
+}));
+P.post('/messenger/sync', need('admin', 'sales'), async (req, res, next) => {
+  try { res.json(await Meta.syncPage(req.pid)); } catch (e) { next(e); }
+});
+P.get('/conversations/:id/messages', wrap(req => {
+  const c = db.prepare('SELECT id FROM conversations WHERE id=? AND page_id=?').get(req.params.id, req.pid);
+  if (!c) throw new AppError('Không tìm thấy hội thoại', 404);
+  return db.prepare(`SELECT m.id, m.direction, m.text, m.attachments, m.sent_via, m.at, u.name user_name FROM fb_messages m LEFT JOIN users u ON u.id=m.user_id
+    WHERE m.conversation_id=? ORDER BY m.at, m.id`).all(c.id).map(m => ({ ...m, attachments: m.attachments ? JSON.parse(m.attachments) : [] }));
+}));
+P.post('/conversations/:id/reply', need('admin', 'sales'), async (req, res, next) => {
+  try { res.json(await Meta.sendText(req.pid, Number(req.params.id), req.body.text, req.user.id)); } catch (e) { next(e); }
+});
+P.post('/conversations/:id/mark', need('admin', 'sales'), wrap(req => {
+  const st = req.body.reply_state === 'chua_tra_loi' ? 'chua_tra_loi' : 'da_tra_loi';
+  db.prepare('UPDATE conversations SET reply_state=? WHERE id=? AND page_id=? AND fb_psid IS NOT NULL').run(st, req.params.id, req.pid);
+  return { ok: true };
 }));
 P.get('/conversations/:id', wrap(req => {
   const c = db.prepare('SELECT * FROM conversations WHERE id=? AND page_id=?').get(req.params.id, req.pid);

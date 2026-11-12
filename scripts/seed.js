@@ -56,4 +56,5 @@ D.changeStatus(o5, pid, kho, 'giao_thanh_cong', { ship_cost_actual: 22000 });
 db.prepare("UPDATE orders SET delivered_at=datetime('now','localtime','-2 days') WHERE id=?").run(o5);
 db.prepare("UPDATE orders SET created_at=datetime('now','localtime','-30 hours') WHERE id=?").run(o1);
 db.prepare("INSERT INTO ad_spend (page_id,day,campaign_code,amount) VALUES (?,date('now','localtime'),'ADS-T11',150000)").run(pid);
+require('./seed-japanbikini').seedJapanbikini();
 console.log('Đã tạo dữ liệu mẫu. Tài khoản: admin/admin123 · banhang/123456 · kho/123456');

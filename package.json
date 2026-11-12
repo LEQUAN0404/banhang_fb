@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --no-warnings server/index.js",
     "seed": "node --no-warnings scripts/seed.js",
-    "test": "node --no-warnings --test test/flow.test.js"
+    "test": "node --no-warnings --test test/flow.test.js test/messenger.test.js",
+    "seed:japanbikini": "node --no-warnings scripts/seed-japanbikini.js"
   },
   "keywords": [],
   "author": "",

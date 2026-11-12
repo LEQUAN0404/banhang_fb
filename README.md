@@ -12,7 +12,9 @@ npm test         # kiểm thử quy trình đơn qua API
 Tài khoản mẫu: `admin/admin123` (Quản trị) · `banhang/123456` (Bán hàng) · `kho/123456` (Kho – đóng gói).
 Không chạy seed thì lần đầu khởi động tự tạo `admin` / `admin123` (hoặc `ADMIN_PASSWORD`). Yêu cầu Node ≥ 22.5 (dùng SQLite tích hợp `node:sqlite`).
 
-Biến môi trường: `PORT`, `DB_PATH` (mặc định `data/banhang.db`), `ADMIN_PASSWORD`, `HTTPS=1` (cookie Secure khi chạy sau HTTPS).
+Biến môi trường: `PORT`, `DB_PATH` (mặc định `data/banhang.db`), `ADMIN_PASSWORD`, `HTTPS=1` (cookie Secure khi chạy sau HTTPS), `TZ`.
+Messenger: `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_GRAPH_VERSION`, `TOKEN_ENCRYPTION_KEY`, `META_LOGIN_CONFIG_ID` — xem [docs/META_SETUP.md](docs/META_SETUP.md).
+Dữ liệu mẫu Page Japanbikini_fashion (6 sản phẩm, size S/M/L): `npm run seed:japanbikini` (chạy nhiều lần không trùng).
 
 ## Ánh xạ quy trình → app
 | Quy trình | Trong app |
@@ -33,10 +35,12 @@ Biến môi trường: `PORT`, `DB_PATH` (mặc định `data/banhang.db`), `ADM
 ## Cấu trúc
 - `server/db.js` — lược đồ CSDL (mục 5)
 - `server/domain.js` — trạng thái, tồn kho, mã đơn, cài đặt mặc định
-- `server/app.js` — API (đăng nhập, phân quyền, theo Page)
+- `server/app.js` — API (đăng nhập, phân quyền, theo Page) + webhook `/webhooks/meta`
+- `server/meta.js` — Messenger qua Graph API: đăng nhập Facebook, kết nối Page, webhook (kiểm tra chữ ký `X-Hub-Signature-256`), đồng bộ, gửi tin; ghi chú lý do từng quyền xin
+- `server/secret.js` — mã hoá Page Access Token (AES-256-GCM)
 - `public/` — giao diện (SPA thuần JS, không cần build), `sw.js` + `manifest.webmanifest` cho PWA
 
 ## Việc tiếp theo
 - Đưa lên mạng: xem [DEPLOY.md](DEPLOY.md) (Railway + ổ lưu dữ liệu).
-- Bản 2: tích hợp Meta Graph API (gom inbox/bình luận, cửa sổ 24h) sau khi được duyệt quyền.
+- Messenger — giai đoạn 1 (đã có): kết nối Page, webhook, hội thoại chưa/đã trả lời, trả lời từ app. Giai đoạn 2: AI soạn nháp chờ duyệt. Giai đoạn 3: AI tự gửi + ghi đơn/trừ kho + vận đơn GHTK.
 - Kết nối API hãng vận chuyển (tạo vận đơn, tra trạng thái tự động).

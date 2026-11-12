@@ -25,6 +25,18 @@ Mở service → tab **Variables** → thêm:
 | `DB_PATH` | `/data/banhang.db` |
 | `ADMIN_PASSWORD` | một mật khẩu mạnh do bạn tự đặt (dùng cho tài khoản `admin` lần đầu) |
 | `HTTPS` | `1` |
+| `TZ` | `Asia/Ho_Chi_Minh` (để giờ trong app là giờ Việt Nam) |
+
+Nếu kết nối Messenger (tin nhắn Facebook Page), thêm cả các biến dưới đây. Cách lấy từng giá trị xem ở [docs/META_SETUP.md](docs/META_SETUP.md).
+
+| Tên | Giá trị |
+|---|---|
+| `META_APP_ID` | App ID của Meta app |
+| `META_APP_SECRET` | App Secret của Meta app |
+| `META_WEBHOOK_VERIFY_TOKEN` | chuỗi bí mật tự đặt, trùng với Verify token khai báo ở Meta |
+| `META_GRAPH_VERSION` | ví dụ `v23.0` |
+| `TOKEN_ENCRYPTION_KEY` | (nên có) chuỗi ngẫu nhiên dài để mã hoá token Page |
+| `META_LOGIN_CONFIG_ID` | (tuỳ chọn) Configuration ID nếu dùng Facebook Login for Business |
 
 Lưu lại và Railway tự deploy lại.
 
@@ -37,6 +49,9 @@ Service → tab **Settings → Networking → Generate Domain**. Bạn sẽ có 
 2. Vào **🔑 Tài khoản → Đổi mật khẩu** ngay.
 3. Vào **Tài khoản & Page** → thêm Page (ví dụ "Linh bra tokyo") → thêm tài khoản cho nhân viên và giao Page.
 4. Trên điện thoại: mở địa chỉ web, chọn **Thêm vào màn hình chính** (iPhone: nút Chia sẻ trong Safari; Android: menu ⋮ trong Chrome).
+
+## Kết nối tin nhắn Facebook Page (Messenger)
+Làm theo [docs/META_SETUP.md](docs/META_SETUP.md): tạo Meta app, đặt webhook, khai báo biến môi trường, rồi bấm **Tài khoản & Page → Kết nối Facebook** trong app.
 
 ## Sao lưu dữ liệu
 Tài khoản quản trị: **Tài khoản & Page → ⬇ Tải bản sao lưu dữ liệu**. Nên tải mỗi tuần và cất vào Google Drive.

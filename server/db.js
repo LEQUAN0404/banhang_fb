@@ -130,6 +130,35 @@ CREATE INDEX IF NOT EXISTS ix_conv_page ON conversations(page_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_moves_variant ON stock_moves(variant_id, at);
 `);
 
+// ---------- Kết nối Facebook Page (Meta Graph API) ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS fb_pages (
+  page_id INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE,
+  fb_page_id TEXT NOT NULL UNIQUE, fb_name TEXT, token_enc TEXT NOT NULL,
+  subscribed INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_sync_at TEXT, last_event_at TEXT,
+  connected_by INTEGER, connected_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS fb_oauth (
+  state TEXT PRIMARY KEY, user_id INTEGER NOT NULL, pages_enc TEXT, expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fb_messages (
+  id INTEGER PRIMARY KEY, conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  mid TEXT NOT NULL UNIQUE, direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+  text TEXT, attachments TEXT, sent_via TEXT, user_id INTEGER, at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fb_webhook_log (
+  id INTEGER PRIMARY KEY, at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  fb_page_id TEXT, kind TEXT, ok INTEGER NOT NULL DEFAULT 1, detail TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_fbmsg_conv ON fb_messages(conversation_id, at);
+`);
+// Bổ sung cột cho bảng conversations của bản 1 (chạy được trên CSDL đang có dữ liệu)
+const convCols = db.prepare('PRAGMA table_info(conversations)').all().map(c => c.name);
+for (const [col, def] of [['fb_psid', 'TEXT'], ['fb_thread_id', 'TEXT'], ['last_msg_at', 'TEXT'], ['last_msg_from', 'TEXT'], ['last_msg_text', 'TEXT'], ['reply_state', 'TEXT']]) {
+  if (!convCols.includes(col)) db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${def}`);
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS ux_conv_psid ON conversations(page_id, fb_psid) WHERE fb_psid IS NOT NULL');
+
 function tx(fn) {
   db.exec('BEGIN');
   try { const r = fn(); db.exec('COMMIT'); return r; }
